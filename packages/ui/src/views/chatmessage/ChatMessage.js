@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import PropTypes from 'prop-types'
 import socketIOClient from 'socket.io-client'
@@ -23,7 +23,7 @@ import {
     Typography
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
-import { IconCircleDot, IconDownload, IconSend, IconMicrophone, IconPhotoPlus, IconTrash, IconX } from '@tabler/icons'
+import { IconCircleDot, IconDownload, IconMicrophone, IconPhotoPlus, IconSend, IconTrash, IconX } from '@tabler/icons'
 import robotPNG from 'assets/images/robot.png'
 import userPNG from 'assets/images/account.png'
 import audioUploadSVG from 'assets/images/wave-sound.jpg'
@@ -33,8 +33,8 @@ import { CodeBlock } from 'ui-component/markdown/CodeBlock'
 import { MemoizedReactMarkdown } from 'ui-component/markdown/MemoizedReactMarkdown'
 import SourceDocDialog from 'ui-component/dialog/SourceDocDialog'
 import StarterPromptsCard from 'ui-component/cards/StarterPromptsCard'
-import { cancelAudioRecording, startAudioRecording, stopAudioRecording } from './audio-recording'
-import { ImageButton, ImageSrc, ImageBackdrop, ImageMarked } from 'ui-component/button/ImageButton'
+import { stopAudioRecording } from './audio-recording'
+import { ImageBackdrop, ImageButton, ImageMarked, ImageSrc } from 'ui-component/button/ImageButton'
 import './ChatMessage.css'
 import './audio-recording.css'
 
@@ -57,6 +57,10 @@ const messageImageStyle = {
     height: '128px',
     objectFit: 'cover'
 }
+
+let speechRecognition
+const speechSynth = window.speechSynthesis
+const speechVoice = speechSynth.getVoices().find((voice) => voice.lang === 'ko-KR')
 
 export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews }) => {
     const theme = useTheme()
@@ -281,14 +285,11 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
     }
 
     const onMicrophonePressed = () => {
-        setIsRecording(true)
-        startAudioRecording(setIsRecording, setRecordingNotSupported)
+        speechRecognition.start()
     }
 
     const onRecordingCancelled = () => {
-        if (!recordingNotSupported) cancelAudioRecording()
-        setIsRecording(false)
-        setRecordingNotSupported(false)
+        speechRecognition.stop()
     }
 
     const onRecordingStopped = async () => {
@@ -447,6 +448,19 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
         }
     }
 
+    const speeching = (e) => {
+        const text = e.currentTarget.textContent
+
+        if (speechSynth.speaking) {
+            speechSynth.cancel()
+        }
+
+        const utterance = new SpeechSynthesisUtterance(text)
+        utterance.voice = speechVoice
+        utterance.lang = 'ko-KR'
+        speechSynth.speak(utterance)
+    }
+
     const downloadFile = async (fileAnnotation) => {
         try {
             const response = await axios.post(
@@ -573,9 +587,24 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
             socket.on('sourceDocuments', updateLastMessageSourceDocuments)
 
             socket.on('token', updateLastMessage)
+
+            speechRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)()
+            speechRecognition.lang = 'ko-KR'
+            speechRecognition.interimResults = false
+            speechRecognition.addEventListener('start', () => {
+                setIsRecording(true)
+            })
+            speechRecognition.addEventListener('result', (e) => {
+                setUserInput(e?.results?.[0]?.[0]?.transcript)
+            })
+            speechRecognition.addEventListener('end', () => {
+                setIsRecording(false)
+            })
         }
 
         return () => {
+            speechSynth?.cancel()
+
             setUserInput('')
             setLoading(false)
             setMessages([
@@ -649,6 +678,7 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
                                             ? 'apimessage'
                                             : 'usermessage'
                                     }
+                                    onClick={speeching}
                                 >
                                     {/* Display the correct icon depending on the message type */}
                                     {message.type === 'apiMessage' ? (
@@ -898,7 +928,7 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
                                     <span className='red-recording-dot'>
                                         <IconCircleDot />
                                     </span>
-                                    <Typography id='elapsed-time'>00:00</Typography>
+                                    {/*<Typography id='elapsed-time'>00:00</Typography>*/}
                                     {isLoadingRecording && <Typography ml={1.5}>Sending...</Typography>}
                                 </div>
                                 <div className='recording-control-buttons-container'>
