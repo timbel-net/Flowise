@@ -314,14 +314,25 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
 
     const onChange = useCallback((e) => setUserInput(e.target.value), [setUserInput])
 
-    const updateLastMessage = (text) => {
-        setMessages((prevMessages) => {
-            let allMessages = [...cloneDeep(prevMessages)]
-            if (allMessages[allMessages.length - 1].type === 'userMessage') return allMessages
-            allMessages[allMessages.length - 1].message += text
-            return allMessages
-        })
-    }
+    const updateLastMessage = (() => {
+        let chunk = ''
+
+        return (text) => {
+            if (!text.includes(' ')) chunk += text
+            else {
+                const space = text.indexOf(' ')
+                speaking(chunk + text.substring(0, space))
+                chunk = text.substring(space + 1)
+            }
+
+            setMessages((prevMessages) => {
+                let allMessages = [...cloneDeep(prevMessages)]
+                if (allMessages[allMessages.length - 1].type === 'userMessage') return allMessages
+                allMessages[allMessages.length - 1].message += text
+                return allMessages
+            })
+        }
+    })()
 
     const updateLastMessageSourceDocuments = (sourceDocuments) => {
         setMessages((prevMessages) => {
@@ -431,7 +442,6 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
         } catch (error) {
             const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
             handleError(errorData)
-            return
         }
     }
 
@@ -455,6 +465,10 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
             speechSynth.cancel()
         }
 
+        speaking(text)
+    }
+
+    const speaking = (text) => {
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.voice = speechVoice
         utterance.lang = 'ko-KR'
@@ -595,7 +609,10 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
                 setIsRecording(true)
             })
             speechRecognition.addEventListener('result', (e) => {
-                setUserInput(e?.results?.[0]?.[0]?.transcript)
+                const text = e?.results?.[0]?.[0]?.transcript
+
+                setUserInput(text)
+                handleSubmit(undefined, text)
             })
             speechRecognition.addEventListener('end', () => {
                 setIsRecording(false)
@@ -678,7 +695,7 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
                                             ? 'apimessage'
                                             : 'usermessage'
                                     }
-                                    onClick={speeching}
+                                    onDblClick={speeching}
                                 >
                                     {/* Display the correct icon depending on the message type */}
                                     {message.type === 'apiMessage' ? (
