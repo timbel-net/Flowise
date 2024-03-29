@@ -883,7 +883,8 @@ export const isFlowValidForStream = (reactFlowNodes: IReactFlowNode[], endingNod
             'chatOllama',
             'awsChatBedrock',
             'chatMistralAI',
-            'groqChat'
+            'groqChat',
+            'chatClovaStudio'
         ],
         LLMs: ['azureOpenAI', 'openAI', 'ollama']
     }

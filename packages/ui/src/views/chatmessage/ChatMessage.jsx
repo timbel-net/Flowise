@@ -813,7 +813,7 @@ export const ChatMessage = ({ open, chatflowid, isDialog, previews, setPreviews 
                                             ? 'apimessage'
                                             : 'usermessage'
                                     }
-                                    onDblClick={speeching}
+                                    onDoubleClick={speeching}
                                 >
                                     {/* Display the correct icon depending on the message type */}
                                     {message.type === 'apiMessage' ? (

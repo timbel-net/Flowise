@@ -1,9 +1,10 @@
 import { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
-import { AIMessage, BaseMessage } from '@langchain/core/messages'
+import { AIMessage, BaseMessage, AIMessageChunk } from '@langchain/core/messages'
 import { ChatGeneration, ChatResult } from '@langchain/core/outputs'
 import { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { getEnvironmentVariable } from '@langchain/core/utils/env'
 import { API_URL, ClovaStudioInputs } from '../../llms/ClovaStudio/clova'
+import { ChatGenerationChunk } from 'langchain/schema'
 
 interface ParsedMessage {
     role: string
@@ -105,13 +106,13 @@ export class ChatClovaStudio extends BaseChatModel {
     async _generate(
         messages: BaseMessage[],
         options: this['ParsedCallOptions'],
-        _?: CallbackManagerForLLMRun | undefined
+        runManager: CallbackManagerForLLMRun | undefined
     ): Promise<ChatResult> {
         const [messageHistory, instruction] = _parseChatHistory(messages)
 
         const headers = {
+            Accept: 'text/event-stream',
             'Content-Type': 'application/json',
-            Accept: 'application/json',
             'X-NCP-CLOVASTUDIO-API-KEY': this.apiKey,
             'X-NCP-APIGW-API-KEY': this.apiGatewayKey,
             'X-NCP-CLOVASTUDIO-REQUEST-ID': this.requestId
@@ -141,6 +142,61 @@ export class ChatClovaStudio extends BaseChatModel {
             body
         })
 
+        const reader = response.body?.getReader()
+        if (reader) {
+            const stream = new ReadableStream({
+                async start(controller) {
+                    const decoder = new TextDecoder('utf-8')
+
+                    async function push() {
+                        if (!reader) return
+
+                        const { done, value } = await reader.read()
+                        if (done) {
+                            controller.close()
+                            return
+                        }
+                        const data = decoder.decode(value, { stream: true })
+                        const {
+                            message: { content: text }
+                        } = JSON.parse(data.substring(data.indexOf('data:') + 5))
+
+                        // eslint-disable-next-line no-void
+                        await runManager?.handleLLMNewToken(
+                            text,
+                            {
+                                prompt: 0,
+                                completion: 0
+                            },
+                            undefined,
+                            undefined,
+                            undefined,
+                            {
+                                chunk: new ChatGenerationChunk({
+                                    message: new AIMessageChunk(text),
+                                    generationInfo: { prompt: 0, completion: 0 },
+                                    text
+                                })
+                            }
+                        )
+
+                        controller.enqueue(text)
+                        await push()
+                    }
+
+                    await push()
+                }
+            })
+
+            const text = await new Response(stream).text()
+            console.log(text)
+
+            return {
+                generations: [{ text, message: new AIMessage(text) }],
+                llmOutput: { estimatedTokenUsage: 0 }
+            }
+        }
+
         if (!response.ok) {
             throw new Error(`Failed to fetch ${API_URL}/${this.model} from Clova Studio: ${response.status}`)
         }
@@ -148,7 +204,7 @@ export class ChatClovaStudio extends BaseChatModel {
         const json = await response.json()
         const { message, inputLength, outputLength } = json.result as ParsedResult
         const totalTokens = inputLength + outputLength
-        const generations: ChatGeneration[] = [{ text: message.content, message: new AIMessage(message.content) }]
+        const generations: ChatGeneration[] = [{ text: 'hahaa', message: new AIMessage('hahah') }]
 
         return {
             generations,
