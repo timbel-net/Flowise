@@ -16,13 +16,13 @@ class ClovaStudioEmbedding_Embeddings implements INode {
     inputs: INodeParams[]
 
     constructor() {
-        this.label = 'ClovaStudio Embeddings'
-        this.name = 'clovaStudioEmbeddings'
-        this.version = 2.0
-        this.type = 'ClovaStudioEmbeddings'
+        this.label = 'Embeddings HyperCLOVA X'
+        this.name = 'hyperClovaXEmbeddings'
+        this.version = 0.1
+        this.type = 'EmbeddingsHyperCLOVA_X'
         this.icon = 'clova-studio.svg'
         this.category = 'Embeddings'
-        this.description = 'ClovaStudio API to run vectorize job for text to numbers.'
+        this.description = 'HyperClova X Embeddings API to run vectorize job for text to numbers.'
         this.baseClasses = [this.type, ...getBaseClasses(ClovaStudioEmbeddings)]
         this.credential = {
             label: 'Connect Credential',

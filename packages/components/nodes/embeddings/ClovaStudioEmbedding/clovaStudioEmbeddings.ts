@@ -1,14 +1,13 @@
-// import { type ClientOptions, OpenAI as OpenAIClient } from 'openai'
 import { Embeddings, type EmbeddingsParams } from '@langchain/core/embeddings'
-// import { AzureOpenAIInput, OpenAICoreRequestOptions } from './types.js'
-// import { getEndpoint, OpenAIEndpointConfig } from './utils/azure.js'
-// import { wrapOpenAIClientError } from './utils/openai.js'
 
 const clovaStudioEmbeddingURL =
     'https://clovastudio.apigw.ntruss.com/testapp/v1/api-tools/embedding/{model}/b11f9acef09942fca5661d09d6c574b0'
 
 export interface ClovaStudioEmbeddingsParams extends EmbeddingsParams {
     modelName: string
+    apiKey: string
+    apiGatewayKey: string
+    requestId: string
 }
 
 export class ClovaStudioEmbeddings extends Embeddings implements ClovaStudioEmbeddingsParams {
@@ -20,9 +19,11 @@ export class ClovaStudioEmbeddings extends Embeddings implements ClovaStudioEmbe
 
     requestId: string
 
-    constructor(fields?: Partial<ClovaStudioEmbeddingsParams>) {
-        const fieldsWithDefaults = { ...fields }
-        super(fieldsWithDefaults)
+    constructor(fields?: Partial<ClovaStudioEmbeddingsParams> & { [key: string]: string }) {
+        super({ ...fields })
+        this.apiKey = fields?.clovaStudioKey ?? ''
+        this.apiGatewayKey = fields?.clovaStudioGwKey ?? ''
+        this.requestId = fields?.clovaStudioRequestId ?? ''
     }
 
     // eslint-disable-next-line unused-imports/no-unused-vars
@@ -42,7 +43,10 @@ export class ClovaStudioEmbeddings extends Embeddings implements ClovaStudioEmbe
             body: JSON.stringify({ text })
         })
 
-        const { result: embedding } = await response.json()
+        const {
+            result: { embedding }
+        } = await response.json()
+
         return embedding
     }
 }

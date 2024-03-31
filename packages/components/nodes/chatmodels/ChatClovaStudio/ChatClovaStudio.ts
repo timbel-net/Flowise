@@ -17,13 +17,14 @@ class ChatClovaStudio_ChatModels implements INode {
     inputs: INodeParams[]
 
     constructor() {
-        this.label = 'ChatClovaStudio'
-        this.name = 'chatClovaStudio'
-        this.version = 2.0
-        this.type = 'ChatClovaStudio'
+        this.label = 'Chat HyperCLOVA X'
+        this.name = 'chatHyperClovaX'
+        this.version = 0.1
+        this.type = 'ChatHyperCLOVA_X'
         this.icon = 'clova-studio.svg'
         this.category = 'Chat Models'
-        this.description = 'AI development tools to help create custom models that use the Chat endpoint'
+        this.description =
+            '대화형 엔드포인트를 사용하는 맞춤 모델을 만드는 데 도움이 되는 AI 개발 도구 AI development tools to help create custom models that use the Chat endpoint'
         this.baseClasses = [this.type, ...getBaseClasses(ChatClovaStudio)]
         this.credential = {
             label: 'Connect Credential',
