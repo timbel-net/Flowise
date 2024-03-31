@@ -1,7 +1,7 @@
 import { flatten } from 'lodash'
-import { DataType, ErrorCode, MetricType, IndexType } from '@zilliz/milvus2-sdk-node'
+import { DataType, ErrorCode, IndexType, MetricType } from '@zilliz/milvus2-sdk-node'
 import { Document } from '@langchain/core/documents'
-import { MilvusLibArgs, Milvus } from '@langchain/community/vectorstores/milvus'
+import { Milvus, MilvusLibArgs } from '@langchain/community/vectorstores/milvus'
 import { Embeddings } from '@langchain/core/embeddings'
 import { ICommonObject, INode, INodeData, INodeOutputsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
@@ -23,6 +23,51 @@ class Milvus_VectorStores implements INode {
     inputs: INodeParams[]
     credential: INodeParams
     outputs: INodeOutputsValue[]
+    //@ts-ignore
+    vectorStoreMethods = {
+        async upsert(nodeData: INodeData, options: ICommonObject): Promise<void> {
+            // server setup
+            const address = nodeData.inputs?.milvusServerUrl as string
+            const collectionName = nodeData.inputs?.milvusCollection as string
+
+            // embeddings
+            const docs = nodeData.inputs?.document as Document[]
+            const embeddings = nodeData.inputs?.embeddings as Embeddings
+
+            // credential
+            const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+            const milvusUser = getCredentialParam('milvusUser', credentialData, nodeData)
+            const milvusPassword = getCredentialParam('milvusPassword', credentialData, nodeData)
+
+            // init MilvusLibArgs
+            const milVusArgs: MilvusLibArgs = {
+                url: address,
+                collectionName: collectionName
+            }
+
+            if (milvusUser) milVusArgs.username = milvusUser
+            if (milvusPassword) milVusArgs.password = milvusPassword
+
+            const flattenDocs = docs && docs.length ? flatten(docs) : []
+            const finalDocs = []
+            for (let i = 0; i < flattenDocs.length; i += 1) {
+                if (flattenDocs[i] && flattenDocs[i].pageContent) {
+                    finalDocs.push(new Document(flattenDocs[i]))
+                }
+            }
+
+            try {
+                const vectorStore = await MilvusUpsert.fromDocuments(finalDocs, embeddings, milVusArgs)
+
+                // Avoid Illegal Invocation
+                vectorStore.similaritySearchVectorWithScore = async (query: number[], k: number, filter?: string) => {
+                    return await similaritySearchVectorWithScore(query, k, vectorStore, undefined, filter)
+                }
+            } catch (e) {
+                throw new Error(e)
+            }
+        }
+    }
 
     constructor() {
         this.label = 'Milvus'
@@ -107,52 +152,6 @@ class Milvus_VectorStores implements INode {
         ]
     }
 
-    //@ts-ignore
-    vectorStoreMethods = {
-        async upsert(nodeData: INodeData, options: ICommonObject): Promise<void> {
-            // server setup
-            const address = nodeData.inputs?.milvusServerUrl as string
-            const collectionName = nodeData.inputs?.milvusCollection as string
-
-            // embeddings
-            const docs = nodeData.inputs?.document as Document[]
-            const embeddings = nodeData.inputs?.embeddings as Embeddings
-
-            // credential
-            const credentialData = await getCredentialData(nodeData.credential ?? '', options)
-            const milvusUser = getCredentialParam('milvusUser', credentialData, nodeData)
-            const milvusPassword = getCredentialParam('milvusPassword', credentialData, nodeData)
-
-            // init MilvusLibArgs
-            const milVusArgs: MilvusLibArgs = {
-                url: address,
-                collectionName: collectionName
-            }
-
-            if (milvusUser) milVusArgs.username = milvusUser
-            if (milvusPassword) milVusArgs.password = milvusPassword
-
-            const flattenDocs = docs && docs.length ? flatten(docs) : []
-            const finalDocs = []
-            for (let i = 0; i < flattenDocs.length; i += 1) {
-                if (flattenDocs[i] && flattenDocs[i].pageContent) {
-                    finalDocs.push(new Document(flattenDocs[i]))
-                }
-            }
-
-            try {
-                const vectorStore = await MilvusUpsert.fromDocuments(finalDocs, embeddings, milVusArgs)
-
-                // Avoid Illegal Invocation
-                vectorStore.similaritySearchVectorWithScore = async (query: number[], k: number, filter?: string) => {
-                    return await similaritySearchVectorWithScore(query, k, vectorStore, undefined, filter)
-                }
-            } catch (e) {
-                throw new Error(e)
-            }
-        }
-    }
-
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
         // server setup
         const address = nodeData.inputs?.milvusServerUrl as string
@@ -186,6 +185,13 @@ class Milvus_VectorStores implements INode {
         if (milvusPassword) milVusArgs.password = milvusPassword
 
         const vectorStore = await Milvus.fromExistingCollection(embeddings, milVusArgs)
+
+        vectorStore.indexSearchParams = '{"nprobe": 1}'
+        vectorStore.indexCreateParams = {
+            metric_type: MetricType.COSINE,
+            index_type: IndexType.IVF_FLAT,
+            params: 'nlist=128'
+        }
 
         // Avoid Illegal Invocation
         vectorStore.similaritySearchVectorWithScore = async (query: number[], k: number, filter?: string) => {
