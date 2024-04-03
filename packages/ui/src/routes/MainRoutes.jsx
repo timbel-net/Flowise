@@ -1,7 +1,6 @@
 import { lazy } from 'react'
 
 // project imports
-import MainLayout from '@/layout/MainLayout'
 import Loadable from '@/ui-component/loading/Loadable'
 
 // chatflows routing
@@ -28,42 +27,42 @@ const Variables = Loadable(lazy(() => import('@/views/variables')))
 // ==============================|| MAIN ROUTING ||============================== //
 
 const MainRoutes = {
-    path: '/',
-    element: <MainLayout />,
-    children: [
-        {
-            path: '/',
-            element: <Chatflows />
-        },
-        {
-            path: '/chatflows',
-            element: <Chatflows />
-        },
-        {
-            path: '/marketplaces',
-            element: <Marketplaces />
-        },
-        {
-            path: '/apikey',
-            element: <APIKey />
-        },
-        {
-            path: '/tools',
-            element: <Tools />
-        },
-        {
-            path: '/assistants',
-            element: <Assistants />
-        },
-        {
-            path: '/credentials',
-            element: <Credentials />
-        },
-        {
-            path: '/variables',
-            element: <Variables />
-        }
-    ]
+  path: '/',
+  element: <Chatflows />,
+  children: [
+    {
+      path: '/',
+      element: <Chatflows />
+    },
+    {
+      path: '/chatflows',
+      element: <Chatflows />
+    },
+    {
+      path: '/marketplaces',
+      element: <Marketplaces />
+    },
+    {
+      path: '/apikey',
+      element: <APIKey />
+    },
+    {
+      path: '/tools',
+      element: <Tools />
+    },
+    {
+      path: '/assistants',
+      element: <Assistants />
+    },
+    {
+      path: '/credentials',
+      element: <Credentials />
+    },
+    {
+      path: '/variables',
+      element: <Variables />
+    }
+  ]
 }
 
 export default MainRoutes
