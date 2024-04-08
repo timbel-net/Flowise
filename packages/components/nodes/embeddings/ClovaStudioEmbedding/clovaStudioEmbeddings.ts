@@ -43,10 +43,13 @@ export class ClovaStudioEmbeddings extends Embeddings implements ClovaStudioEmbe
             body: JSON.stringify({ text })
         })
 
+        const json = await response.json()
         const {
-            result: { embedding }
-        } = await response.json()
+            status: { code, message }
+        } = json
 
-        return embedding
+        if (code !== '20000') throw new Error(`Clova Embedding: ${message} (code: ${code})`)
+
+        return json.result.embedding
     }
 }

@@ -1,43 +1,15 @@
 import { CallbackManagerForLLMRun } from '@langchain/core/callbacks/manager'
-import { AIMessage, BaseMessage } from '@langchain/core/messages'
-import { ChatGeneration, ChatResult } from '@langchain/core/outputs'
+import { AIMessageChunk, BaseMessage } from '@langchain/core/messages'
+import { ChatGeneration, ChatGenerationChunk, ChatResult } from '@langchain/core/outputs'
 import { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { getEnvironmentVariable } from '@langchain/core/utils/env'
 import { API_URL, ClovaStudioInputs } from '../../llms/ClovaStudio/clova'
+import { type BaseLanguageModelCallOptions } from '@langchain/core/language_models/base'
 
 interface ParsedMessage {
     role: string
     content: string
 }
-
-const responseData = {
-    message: {
-        role: 'assistant',
-        content: '네. 무엇을 도와드릴까요?'
-    },
-    inputLength: 2,
-    outputLength: 10,
-    stopReason: 'stop_before',
-    seed: 650435647,
-    aiFilter: [
-        {
-            groupName: 'curse',
-            name: 'insult',
-            score: '2'
-        },
-        {
-            groupName: 'curse',
-            name: 'discrimination',
-            score: '2'
-        },
-        {
-            groupName: 'unsafeContents',
-            name: 'sexualHarassment',
-            score: '2'
-        }
-    ]
-}
-export type ParsedResult = typeof responseData
 
 function _parseChatHistory(history: BaseMessage[]): [ParsedMessage[], string] {
     const chatHistory: ParsedMessage[] = []
@@ -55,7 +27,9 @@ function _parseChatHistory(history: BaseMessage[]): [ParsedMessage[], string] {
     return [chatHistory, instruction]
 }
 
-export class ChatClovaStudio extends BaseChatModel {
+export class ChatClovaStudio<
+    CallOptions extends BaseLanguageModelCallOptions = BaseLanguageModelCallOptions
+> extends BaseChatModel<CallOptions> {
     temperature = 0.5
 
     maxTokens = 256
@@ -94,7 +68,7 @@ export class ChatClovaStudio extends BaseChatModel {
     }
 
     _llmType() {
-        return 'clovaStudio'
+        return 'hyperClovaX'
     }
 
     _combineLLMOutput?() {
@@ -107,19 +81,75 @@ export class ChatClovaStudio extends BaseChatModel {
         options: this['ParsedCallOptions'],
         runManager: CallbackManagerForLLMRun | undefined
     ): Promise<ChatResult> {
-        const [messageHistory, instruction] = _parseChatHistory(messages)
+        let finalChunk: ChatGenerationChunk | undefined
+        let inputLength = 0
+        let outputLength = 0
 
-        const headers = {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-NCP-CLOVASTUDIO-API-KEY': this.apiKey,
-            'X-NCP-APIGW-API-KEY': this.apiGatewayKey,
-            'X-NCP-CLOVASTUDIO-REQUEST-ID': this.requestId
+        const stream = this._streamResponseChunks(messages, options, runManager)
+        for await (const chunk of stream) {
+            finalChunk = chunk
         }
 
+        const generations: ChatGeneration[] = []
+        if (finalChunk) {
+            generations.push({
+                text: finalChunk?.text,
+                message: finalChunk?.message.toChunk()
+            })
+
+            inputLength = finalChunk.message.additional_kwargs?.inputLength as number
+            outputLength = finalChunk.message.additional_kwargs?.outputLength as number
+        }
+
+        return {
+            generations,
+            llmOutput: {
+                estimatedTokenUsage: {
+                    promptTokens: inputLength,
+                    completionTokens: outputLength,
+                    totalTokens: inputLength + outputLength
+                }
+            }
+        }
+    }
+
+    async *_streamResponseChunks(
+        messages: BaseMessage[],
+        options: this['ParsedCallOptions'],
+        runManager?: CallbackManagerForLLMRun
+    ): AsyncGenerator<ChatGenerationChunk> {
+        const [messageHistory, instruction] = _parseChatHistory(messages)
+
+        const newTokenIndices = {
+            prompt: 0,
+            completion: 0
+        }
+
+        const streamIterable = await this.completionWithRetry(messageHistory, instruction, options)
+        for await (const chunk of streamIterable) {
+            const text = chunk.content.toString()
+            yield new ChatGenerationChunk({
+                message: chunk.toChunk(),
+                text
+            })
+
+            if (!Object.keys(chunk.additional_kwargs).length) {
+                // eslint-disable-next-line no-void
+                void runManager?.handleLLMNewToken(text, newTokenIndices, undefined, undefined, undefined, {
+                    chunk
+                })
+            }
+        }
+
+        if (options.signal?.aborted) {
+            throw new Error('AbortError')
+        }
+    }
+
+    async completionWithRetry(history: any, instruction: any, options: any): Promise<AsyncIterable<AIMessageChunk>> {
         const body = JSON.stringify({
             messages: [
-                ...messageHistory,
+                ...history,
                 {
                     role: 'user',
                     content: instruction
@@ -137,22 +167,69 @@ export class ChatClovaStudio extends BaseChatModel {
 
         const response = await fetch(`${API_URL}/${this.model}`, {
             method: 'POST',
-            headers,
+            headers: {
+                Accept: 'text/event-stream',
+                'Content-Type': 'application/json',
+                'X-NCP-CLOVASTUDIO-API-KEY': this.apiKey,
+                'X-NCP-APIGW-API-KEY': this.apiGatewayKey,
+                'X-NCP-CLOVASTUDIO-REQUEST-ID': this.requestId
+            },
+            signal: options?.signal,
             body
         })
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch ${API_URL}/${this.model} from Clova Studio: ${response.status}`)
-        }
+        const decoder = new TextDecoder()
+        const reader = response.body?.getReader()
 
-        const json = await response.json()
-        const { message, inputLength, outputLength } = json.result as ParsedResult
-        const totalTokens = inputLength + outputLength
-        const generations: ChatGeneration[] = [{ text: message.content, message: new AIMessage(message.content) }]
+        return this.caller.call(async () => {
+            try {
+                return {
+                    async *[Symbol.asyncIterator]() {
+                        let read
+                        let text: string = ''
 
-        return {
-            generations,
-            llmOutput: { totalTokens }
-        }
+                        while ((read = await reader?.read())) {
+                            const { value, done } = read
+
+                            if (done) {
+                                options?.signal?.abort('end_of_stream')
+                                break
+                            }
+
+                            text += decoder.decode(value)
+                            if (!text.endsWith('}\n\n')) {
+                                continue
+                            }
+
+                            try {
+                                const data = JSON.parse(text.slice(text.indexOf('data:{') + 5, text.indexOf('}\n\n') + 1))
+
+                                if (text.includes('event:result')) {
+                                    yield new AIMessageChunk({
+                                        content: data.message.content,
+                                        additional_kwargs: {
+                                            inputLength: data.inputLength,
+                                            outputLength: data.outputLength
+                                        }
+                                    })
+
+                                    options?.signal?.abort('stop_before')
+                                    break
+                                } else if (data?.message?.content) {
+                                    yield new AIMessageChunk({ content: data.message.content })
+                                }
+                            } catch (e) {
+                                console.error(e, text)
+                            }
+
+                            text = ''
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('clova fetch error', e)
+                throw e
+            }
+        })
     }
 }
